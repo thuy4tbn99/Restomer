@@ -1,0 +1,14 @@
+.ipynb_checkpoints/
+*.pyc
+*.png
+*.tif
+*.jpg
+*.pth
+*.mat
+*.npy
+.DS_Store
+experiments
+basicsr.egg-info
+.eggs
+tb_logger
+Datasets
