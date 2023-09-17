@@ -205,9 +205,7 @@ class Restormer(nn.Module):
     ):
 
         super(Restormer, self).__init__()
-        
-        c_9nei = 27
-        self.nei_conv2d = nn.Conv2d(c_9nei, dim, kernel_size=3, stride=1, padding=1, bias=bias) # thuytt
+
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
 
         self.encoder_level1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=heads[0], ffn_expansion_factor=ffn_expansion_factor, bias=bias, LayerNorm_type=LayerNorm_type) for i in range(num_blocks[0])])
@@ -245,42 +243,7 @@ class Restormer(nn.Module):
         self.output = nn.Conv2d(int(dim*2**1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
 
     def forward(self, inp_img):
-        # print('inp_img', inp_img.shape)
-        
-        # 9nei feature
-        inp_neighs= conv_neighbor(inp_img)
-        # print('inp_neighs', inp_neighs.shape)
-        inp_neigh_enc_level1 = self.nei_conv2d(inp_neighs)
-        out_neigh_enc_level1 = self.encoder_level1(inp_neigh_enc_level1)
-        
-        inp_neigh_enc_level2 = self.down1_2(out_neigh_enc_level1)
-        out_neigh_enc_level2 = self.encoder_level2(inp_neigh_enc_level2)
 
-        inp_neigh_enc_level3 = self.down2_3(out_neigh_enc_level2)
-        out_neigh_enc_level3 = self.encoder_level3(inp_neigh_enc_level3) 
-
-        inp_neigh_enc_level4 = self.down3_4(out_neigh_enc_level3)
-        neigh_latent = self.latent(inp_neigh_enc_level4) 
-                        
-        inp_neigh_dec_level3 = self.up4_3(neigh_latent)
-        inp_neigh_dec_level3 = torch.cat([inp_neigh_dec_level3, out_neigh_enc_level3], 1)
-        inp_neigh_dec_level3 = self.reduce_chan_level3(inp_neigh_dec_level3)
-        out_neigh_dec_level3 = self.decoder_level3(inp_neigh_dec_level3) 
-
-        inp_neigh_dec_level2 = self.up3_2(out_neigh_dec_level3)
-        inp_neigh_dec_level2 = torch.cat([inp_neigh_dec_level2, out_neigh_enc_level2], 1)
-        inp_neigh_dec_level2 = self.reduce_chan_level2(inp_neigh_dec_level2)
-        out_neigh_dec_level2 = self.decoder_level2(inp_neigh_dec_level2) 
-
-        inp_neigh_dec_level1 = self.up2_1(out_neigh_dec_level2)
-        inp_neigh_dec_level1 = torch.cat([inp_neigh_dec_level1, out_neigh_enc_level1], 1)
-        out_neigh_dec_level1 = self.decoder_level1(inp_neigh_dec_level1)
-        
-        out_neigh_dec_level1 = self.refinement(out_neigh_dec_level1)
-        # print('out_neigh_dec_level1', out_neigh_dec_level1.shape)
-
-
-        # raw input feature
         inp_enc_level1 = self.patch_embed(inp_img)
         out_enc_level1 = self.encoder_level1(inp_enc_level1)
         
@@ -308,7 +271,6 @@ class Restormer(nn.Module):
         out_dec_level1 = self.decoder_level1(inp_dec_level1)
         
         out_dec_level1 = self.refinement(out_dec_level1)
-        # print('out_dec_level1', out_dec_level1.shape)
 
         #### For Dual-Pixel Defocus Deblurring Task ####
         if self.dual_pixel_task:
@@ -316,45 +278,7 @@ class Restormer(nn.Module):
             out_dec_level1 = self.output(out_dec_level1)
         ###########################
         else:
-            # out_dec_level1 = self.output(out_dec_level1) + inp_img
-            # print('self.output(out_dec_level1)', self.output(out_dec_level1).shape)
-            # print('inp_img', inp_img.shape)
-            # print('self.output(out_neigh_dec_level1)', self.output(out_neigh_dec_level1).shape)
-            out_dec_level1 = self.output(out_dec_level1) + inp_img + self.output(out_neigh_dec_level1)  # thuytt
+            out_dec_level1 = self.output(out_dec_level1) + inp_img
 
 
         return out_dec_level1
-
-
-#-------------------------------
-# thuytt neighbor
-import numpy as np
-def conv_neighbor(x):
-    m, n_c, h, w = x.shape
-    x_R = x[:,0,:,:].reshape(m,1,h,w)
-    x_G = x[:,1,:,:].reshape(m,1,h,w)
-    x_B = x[:,2,:,:].reshape(m,1,h,w)
-
-    # init weight
-    n_nei, fh, fw = (9,3,3)
-    w = np.array(
-        [-1,0,0,0,1,0,0,0,0,
-          0,-1,0,0,1,0,0,0,0,
-          0,0,-1,0,1,0,0,0,0,
-          0,0,0,-1,1,0,0,0,0,
-          0,0,0,0, 0,0,0,0,0,
-          0,0,0,0, 1,-1,0,0,0,
-          0,0,0,0, 1,0,-1,0,0,
-          0,0,0,0, 1,0,0,-1,0,
-          0,0,0,0, 1,0,0,0,-1]
-        )
-    w = w.reshape(n_nei, 1,fh,fw)
-    w = torch.tensor(w, dtype=torch.float).cuda()
-
-    # calculate neighbor different each channel (R-G-B)
-    out_R = torch.nn.functional.conv2d(x_R, w, padding=1)
-    out_G = torch.nn.functional.conv2d(x_G, w, padding=1)
-    out_B = torch.nn.functional.conv2d(x_B, w, padding=1)
-    out = torch.cat((out_R, out_G, out_B), axis=1)
-    return out
-
