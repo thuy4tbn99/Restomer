@@ -12,3 +12,5 @@ basicsr.egg-info
 .eggs
 tb_logger
 Datasets
+
+wandb

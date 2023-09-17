@@ -20,7 +20,7 @@ from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
 
 import numpy as np
-os.environ['CUDA_VISIBLE_DEVICES']="4,5,6,7"
+# os.environ['CUDA_VISIBLE_DEVICES']="4,5,6,7"
 
 def parse_options(is_train=True):
     parser = argparse.ArgumentParser()
@@ -147,7 +147,12 @@ def main():
     resume_state = None
     if len(states) > 0:
         max_state_file = '{}.state'.format(max([int(x[0:-6]) for x in states]))
-        resume_state = os.path.join(state_folder_path, max_state_file)
+        
+        # if resume_state None -> not load
+        if opt['path'].get('resume_state') =='':
+            resume_state = os.path.join(state_folder_path, max_state_file) # max state path .pth
+        elif opt['path'].get('resume_state'):
+            resume_state = os.path.join(state_folder_path, opt['path'].get('resume_state')) # state path in yml .pth
         opt['path']['resume_state'] = resume_state
 
     # load resume states if necessary
