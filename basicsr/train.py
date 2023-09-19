@@ -57,6 +57,7 @@ def parse_options(is_train=True):
         opt['manual_seed'] = seed
     set_random_seed(seed + opt['rank'])
 
+    opt = {**opt, **vars(args)}
     return opt
 
 
