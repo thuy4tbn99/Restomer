@@ -31,7 +31,8 @@ def parse_options(is_train=True):
         choices=['none', 'pytorch', 'slurm'],
         default='none',
         help='job launcher')
-    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--local_rank', type=int, default=0)    
+    parser.add_argument('--tags', default='restormer', nargs='+', type=str, help='Tags for wandb') # tags wandb
     args = parser.parse_args()
     opt = parse(args.opt, is_train=is_train)
 
