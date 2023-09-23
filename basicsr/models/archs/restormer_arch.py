@@ -10,6 +10,7 @@ from pdb import set_trace as stx
 import numbers
 
 from einops import rearrange
+import numpy as np
 
 
 
@@ -203,10 +204,14 @@ class Restormer(nn.Module):
         LayerNorm_type = 'WithBias',   ## Other option 'BiasFree'
         dual_pixel_task = False        ## True for dual-pixel defocus deblurring only. Also set inp_channels=6
     ):
-
+        
         super(Restormer, self).__init__()
 
-        self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
+        self.Nnei = 3
+        convNnei_channel =inp_channels*self.Nnei*self.Nnei
+        self.patch_embed = nn.Conv2d(in_channels=convNnei_channel, out_channels=dim, kernel_size=3, padding=1, stride=1, groups=1,
+                              bias=True)
+        # self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
 
         self.encoder_level1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=heads[0], ffn_expansion_factor=ffn_expansion_factor, bias=bias, LayerNorm_type=LayerNorm_type) for i in range(num_blocks[0])])
         
@@ -243,8 +248,9 @@ class Restormer(nn.Module):
         self.output = nn.Conv2d(int(dim*2**1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
 
     def forward(self, inp_img):
+        inp_Nnei = conv_neighbor(inp_img, self.Nnei)
 
-        inp_enc_level1 = self.patch_embed(inp_img)
+        inp_enc_level1 = self.patch_embed(inp_Nnei)
         out_enc_level1 = self.encoder_level1(inp_enc_level1)
         
         inp_enc_level2 = self.down1_2(out_enc_level1)
@@ -282,3 +288,57 @@ class Restormer(nn.Module):
 
 
         return out_dec_level1
+    
+# ConvNnei
+def conv_neighbor(x, scale=5): # shape: (bs, c, h, w)
+    # print('x conv_neighbor', x.shape)
+    m, n_c, h, w = x.shape
+    x_R = x[:,0,:,:].reshape(m,1,h,w)
+    x_G = x[:,1,:,:].reshape(m,1,h,w)
+    x_B = x[:,2,:,:].reshape(m,1,h,w)
+
+    # init weight
+    def init_weight(scale):
+        n_nei = scale*scale
+        middle = n_nei//2
+
+        W = np.zeros((n_nei, n_nei))
+        for i in range(n_nei):
+            w_i = np.zeros(n_nei, dtype=float)
+            w_i[i]=-1
+            w_i[middle]=1
+            W[i] = w_i
+        
+        W = torch.from_numpy(W).float()
+        return W
+    n_nei, fh, fw = (scale*scale,scale,scale)
+    weight = init_weight(scale)
+    weight = weight.reshape(n_nei, 1,fh,fw)
+    if x.is_cuda:
+        # print('bingo cuda')
+        weight = weight.cuda()
+    # calculate neighbor different each channel (R-G-B)
+    padd = int(scale/2)
+    out_R = torch.nn.functional.conv2d(x_R, weight, padding=padd)   # 1x9xHxW
+    # out_R = torch.unsqueeze(torch.sum(out_R, 1), 1)
+
+    out_G = torch.nn.functional.conv2d(x_G, weight, padding=padd)
+    # out_G = torch.unsqueeze(torch.sum(out_G, 1), 1)
+
+    out_B = torch.nn.functional.conv2d(x_B, weight, padding=padd)
+    # out_B = torch.unsqueeze(torch.sum(out_B, 1), 1)
+
+    out = torch.cat((out_R, out_G, out_B), axis=1)      # 1x27xHxW
+    return out
+
+if __name__ == '__main__':
+    net = Restormer()
+
+    inp_shape = (3, 256, 256)
+    from ptflops import get_model_complexity_info
+    macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
+
+    params = float(params[:-3])
+    macs = float(macs[:-4])
+
+    print(macs, params)
